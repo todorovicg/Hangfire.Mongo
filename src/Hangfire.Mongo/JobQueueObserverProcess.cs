@@ -57,7 +57,13 @@ namespace Hangfire.Mongo
                     {
                         // Set the last value we saw 
                         lastId = jobEnqueuedDto.Id;
-                        _jobQueueSemaphore.Release(jobEnqueuedDto.Queue);
+                        var queue = jobEnqueuedDto.Queue;
+
+                        if (string.IsNullOrEmpty(queue))
+                        {
+                            continue;
+                        }
+                        _jobQueueSemaphore.Release(queue);
                     }
                 }
 

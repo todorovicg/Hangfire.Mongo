@@ -6,8 +6,6 @@ using Hangfire.Common;
 using Hangfire.Mongo.Database;
 using Hangfire.Mongo.DistributedLock;
 using Hangfire.Mongo.Dto;
-using Hangfire.Mongo.PersistentJobQueue;
-using Hangfire.Mongo.PersistentJobQueue.Mongo;
 using Hangfire.Server;
 using Hangfire.Storage;
 using MongoDB.Bson;
@@ -18,17 +16,20 @@ namespace Hangfire.Mongo
     /// <summary>
     /// MongoDB database connection for Hangfire
     /// </summary>
-    public class MongoConnection : JobStorageConnection
+    internal class MongoConnection : JobStorageConnection
     {
         private readonly MongoStorageOptions _storageOptions;
+        private readonly IJobQueueSemaphore _jobQueueSemaphore;
 
 #pragma warning disable 1591
         public MongoConnection(
             HangfireDbContext database,
-            MongoStorageOptions storageOptions)
+            MongoStorageOptions storageOptions,
+            IJobQueueSemaphore jobQueueSemaphore)
         {
             _database = database ?? throw new ArgumentNullException(nameof(database));
             _storageOptions = storageOptions ?? throw new ArgumentNullException(nameof(storageOptions));
+            _jobQueueSemaphore = jobQueueSemaphore;
         }
 
         private readonly HangfireDbContext _database;
@@ -76,7 +77,7 @@ namespace Hangfire.Mongo
             if (queues == null || queues.Length == 0)
                 throw new ArgumentNullException(nameof(queues));
 
-            var jobQueue = new MongoJobQueue(_database, _storageOptions);
+            var jobQueue = new MongoJobQueue(_database, _storageOptions, _jobQueueSemaphore);
             
             return jobQueue.Dequeue(queues, cancellationToken);
         }

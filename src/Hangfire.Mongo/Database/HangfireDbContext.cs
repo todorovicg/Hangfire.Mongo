@@ -1,6 +1,8 @@
 ﻿using System;
+using Hangfire.Mongo.DistributedLock;
 using Hangfire.Mongo.Dto;
 using Hangfire.Mongo.Migration;
+using MongoDB.Bson;
 using MongoDB.Driver;
 
 namespace Hangfire.Mongo.Database
@@ -13,7 +15,7 @@ namespace Hangfire.Mongo.Database
         private readonly string _prefix;
 
         internal MongoClient Client { get; }
-
+        
         internal IMongoDatabase Database { get; }
 
         /// <summary>
@@ -23,14 +25,8 @@ namespace Hangfire.Mongo.Database
         /// <param name="databaseName">Database name</param>
         /// <param name="prefix">Collections prefix</param>
         public HangfireDbContext(string connectionString, string databaseName, string prefix = "hangfire")
+            :this(MongoClientSettings.FromUrl(MongoUrl.Create(connectionString)), databaseName, prefix)
         {
-            _prefix = prefix;
-
-            Client = new MongoClient(connectionString);
-
-            Database = Client.GetDatabase(databaseName);
-
-            ConnectionId = Guid.NewGuid().ToString();
         }
 
         /// <summary>
@@ -43,9 +39,9 @@ namespace Hangfire.Mongo.Database
         {
             _prefix = prefix;
 
-            var client = new MongoClient(mongoClientSettings);
+            Client = new MongoClient(mongoClientSettings);
 
-            Database = client.GetDatabase(databaseName);
+            Database = Client.GetDatabase(databaseName);
 
             ConnectionId = Guid.NewGuid().ToString();
         }
@@ -54,7 +50,7 @@ namespace Hangfire.Mongo.Database
         /// <summary>
         /// Mongo database connection identifier
         /// </summary>
-        public string ConnectionId { get; private set; }
+        public string ConnectionId { get; }
 
         /// <summary>
         /// Reference to job graph collection
@@ -77,16 +73,43 @@ namespace Hangfire.Mongo.Database
         /// </summary>
         public IMongoCollection<ServerDto> Server => Database.GetCollection<ServerDto>(_prefix + ".server");
 
+        
+        
+        private string JobEnqueueSignalsCollectionName => _prefix + ".jobQueueSignals";
+        /// <summary>
+        /// Reference to tailable collection which contains signal dtos for enqueued job items
+        /// </summary>
+        public IMongoCollection<JobEnqueuedDto> EnqueuedJobs =>
+            Database.GetCollection<JobEnqueuedDto>(JobEnqueueSignalsCollectionName);
+        
         /// <summary>
         /// Initializes intial collections schema for Hangfire
         /// </summary>
         public void Init(MongoStorageOptions storageOptions)
         {
-            var migrationManager = new MongoMigrationManager(storageOptions);
-            migrationManager.Migrate(this);
+            using (new MongoDistributedLock(nameof(Init), TimeSpan.FromSeconds(30), this, storageOptions))
+            {
+                var migrationManager = new MongoMigrationManager(storageOptions);
+                migrationManager.Migrate(this);
+
+                if (!CollectionExists(JobEnqueueSignalsCollectionName))
+                {
+                    Database.CreateCollection(JobEnqueueSignalsCollectionName, new CreateCollectionOptions
+                    {
+                        Capped = true,
+                        MaxSize = 4096
+                    });
+                }
+            }
         }
 
+        private bool CollectionExists(string collectionName)
+        {
+            var filter = new BsonDocument("name", collectionName);
+            var options = new ListCollectionNamesOptions { Filter = filter };
 
+            return Database.ListCollectionNames(options).Any();
+        }
         /// <summary>
         /// Disposes the object
         /// </summary>

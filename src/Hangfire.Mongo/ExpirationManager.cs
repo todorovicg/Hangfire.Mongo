@@ -13,31 +13,29 @@ namespace Hangfire.Mongo
     /// </summary>
     public class ExpirationManager : IBackgroundProcess, IServerComponent
     {
+        private readonly HangfireDbContext _dbContext;
         private static readonly ILog Logger = LogProvider.For<ExpirationManager>();
 
-        private readonly MongoStorage _storage;
         private readonly TimeSpan _checkInterval;
 
         /// <summary>
         /// Constructs expiration manager with one hour checking interval
         /// </summary>
-        /// <param name="storage">MongoDB storage</param>
-        public ExpirationManager(MongoStorage storage)
-            : this(storage, TimeSpan.FromHours(1))
+        /// <param name="dbContext">MongoDB storage</param>
+        public ExpirationManager(HangfireDbContext dbContext)
+            : this(dbContext, TimeSpan.FromHours(1))
         {
+            
         }
 
         /// <summary>
         /// Constructs expiration manager with specified checking interval
         /// </summary>
-        /// <param name="storage">MongoDB storage</param>
+        /// <param name="dbContext">MongoDB storage</param>
         /// <param name="checkInterval">Checking interval</param>
-        public ExpirationManager(MongoStorage storage, TimeSpan checkInterval)
+        public ExpirationManager(HangfireDbContext dbContext, TimeSpan checkInterval)
         {
-            if (storage == null)
-                throw new ArgumentNullException(nameof(storage));
-
-            _storage = storage;
+            _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
             _checkInterval = checkInterval;
         }
 
@@ -56,16 +54,14 @@ namespace Hangfire.Mongo
         /// <param name="cancellationToken">Cancellation token</param>
         public void Execute(CancellationToken cancellationToken)
         {
-            using (HangfireDbContext connection = _storage.CreateAndOpenConnection())
-            {
-                DateTime now = DateTime.UtcNow;
+            var now = DateTime.UtcNow;
 
-                Logger.DebugFormat("Removing outdated records from table '{0}'...", connection.JobGraph.CollectionNamespace.CollectionName);
+            Logger.DebugFormat("Removing expired documents from '{0}'",
+                _dbContext.JobGraph.CollectionNamespace.CollectionName);
 
-                connection
-                    .JobGraph
-                    .OfType<ExpiringJobDto>().DeleteMany(Builders<ExpiringJobDto>.Filter.Lt(_ => _.ExpireAt, now));
-            }
+            _dbContext
+                .JobGraph
+                .OfType<ExpiringJobDto>().DeleteMany(Builders<ExpiringJobDto>.Filter.Lt(_ => _.ExpireAt, now));
 
             cancellationToken.WaitHandle.WaitOne(_checkInterval);
         }

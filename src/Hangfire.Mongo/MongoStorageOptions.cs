@@ -59,6 +59,7 @@ namespace Hangfire.Mongo
         /// <summary>
         /// Invisibility timeout
         /// </summary>
+        [Obsolete("This is marked obsolete in Hangfire and is not used anymore")]
         public TimeSpan InvisibilityTimeout { get; set; }
 
         /// <summary>
@@ -87,7 +88,7 @@ namespace Hangfire.Mongo
         /// <summary>
         /// Cleint identifier
         /// </summary>
-        public string ClientId { get; private set; }
+        public string ClientId { get; }
 
         /// <summary>
         /// Expiration check inteval for jobs

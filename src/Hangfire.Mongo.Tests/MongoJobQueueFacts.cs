@@ -2,10 +2,10 @@
 using System.Threading;
 using Hangfire.Mongo.Database;
 using Hangfire.Mongo.Dto;
-using Hangfire.Mongo.PersistentJobQueue.Mongo;
 using Hangfire.Mongo.Tests.Utils;
 using MongoDB.Bson;
 using MongoDB.Driver;
+using Moq;
 using Xunit;
 
 namespace Hangfire.Mongo.Tests
@@ -16,11 +16,16 @@ namespace Hangfire.Mongo.Tests
     {
         private static readonly string[] DefaultQueues = { "default" };
 
+        private readonly Mock<JobQueueSemaphore> _jobQueueSemaphore;
+        public MongoJobQueueFacts()
+        {
+            _jobQueueSemaphore = new Mock<JobQueueSemaphore>(MockBehavior.Strict);
+        }
         [Fact]
         public void Ctor_ThrowsAnException_WhenConnectionIsNull()
         {
             var exception = Assert.Throws<ArgumentNullException>(() =>
-                new MongoJobQueue(null, new MongoStorageOptions()));
+                new MongoJobQueue(null, new MongoStorageOptions(), _jobQueueSemaphore.Object));
 
             Assert.Equal("connection", exception.ParamName);
         }
@@ -31,7 +36,7 @@ namespace Hangfire.Mongo.Tests
             UseConnection(connection =>
             {
                 var exception = Assert.Throws<ArgumentNullException>(() =>
-                    new MongoJobQueue(connection, null));
+                    new MongoJobQueue(connection, null, _jobQueueSemaphore.Object));
 
                 Assert.Equal("storageOptions", exception.ParamName);
             });
@@ -105,11 +110,11 @@ namespace Hangfire.Mongo.Tests
                 };
 
                 connection.JobGraph.InsertOne(jobQueue);
-
+                var token = CreateTimingOutCancellationToken();
                 var queue = CreateJobQueue(connection);
 
                 // Act
-                MongoFetchedJob payload = (MongoFetchedJob)queue.Dequeue(DefaultQueues, CreateTimingOutCancellationToken());
+                MongoFetchedJob payload = (MongoFetchedJob)queue.Dequeue(DefaultQueues, token);
 
                 // Assert
                 Assert.Equal(jobQueue.JobId.ToString(), payload.JobId);
@@ -320,9 +325,9 @@ namespace Hangfire.Mongo.Tests
             return source.Token;
         }
 
-        private static MongoJobQueue CreateJobQueue(HangfireDbContext connection)
+        private MongoJobQueue CreateJobQueue(HangfireDbContext connection)
         {
-            return new MongoJobQueue(connection, new MongoStorageOptions());
+            return new MongoJobQueue(connection, new MongoStorageOptions(), _jobQueueSemaphore.Object);
         }
 
         private static void UseConnection(Action<HangfireDbContext> action)

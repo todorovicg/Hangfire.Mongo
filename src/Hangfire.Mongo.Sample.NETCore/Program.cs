@@ -1,4 +1,5 @@
 ﻿using System;
+using Hangfire.Logging.LogProviders;
 
 namespace Hangfire.Mongo.Sample.NETCore
 {
@@ -21,7 +22,8 @@ namespace Hangfire.Mongo.Sample.NETCore
                 "mongodb://localhost",
                 "Mongo-Hangfire-Sample-NETCore",
                 migrationOptions);
-
+            GlobalConfiguration.Configuration.UseLogProvider(new ColouredConsoleLogProvider());
+            
             using (new BackgroundJobServer())
             {
                 for (var i = 0; i < JobCount; i++)

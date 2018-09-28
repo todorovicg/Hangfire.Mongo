@@ -14,13 +14,13 @@ namespace Hangfire.Mongo.Tests
     [Collection("Database")]
     public class ExpirationManagerFacts
     {
-        private readonly MongoStorage _storage;
+        private readonly HangfireDbContext _dbContext;
 
         private readonly CancellationToken _token;
 
         public ExpirationManagerFacts()
         {
-            _storage = ConnectionUtils.CreateStorage();
+            _dbContext = ConnectionUtils.CreateConnection();
 
             _token = new CancellationToken(true);
         }
@@ -265,7 +265,7 @@ namespace Hangfire.Mongo.Tests
 
         private ExpirationManager CreateManager()
         {
-            return new ExpirationManager(_storage);
+            return new ExpirationManager(_dbContext);
         }
 
         private static void Commit(HangfireDbContext connection, Action<MongoWriteOnlyTransaction> action)

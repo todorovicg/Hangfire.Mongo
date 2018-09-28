@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
 using Hangfire.Logging;
 using Hangfire.Mongo.Database;
 using Hangfire.Mongo.Dto;
@@ -23,9 +22,12 @@ namespace Hangfire.Mongo
 
         private readonly IList<WriteModel<BsonDocument>> _writeModels = new List<WriteModel<BsonDocument>>();
 
+        private readonly HashSet<string> _jobsAddedToQueue;
+
         public MongoWriteOnlyTransaction(HangfireDbContext connection)
         {
             _connection = connection ?? throw new ArgumentNullException(nameof(connection));
+            _jobsAddedToQueue = new HashSet<string>();
         }
 
         public override void Dispose()
@@ -61,7 +63,7 @@ namespace Hangfire.Mongo
                 CreatedAt = DateTime.UtcNow,
                 Data = state.SerializeData()
             }.ToBsonDocument();
-
+            
             var update = new BsonDocument
             {
                 ["$set"] = new BsonDocument(nameof(JobDto.StateName), state.Name),
@@ -99,7 +101,8 @@ namespace Hangfire.Mongo
                 Id = ObjectId.GenerateNewId(),
                 FetchedAt = null
             }.ToBsonDocument();
-            
+
+            _jobsAddedToQueue.Add(queue);
             var writeModel = new InsertOneModel<BsonDocument>(jobQueueDocument);
             _writeModels.Add(writeModel);
         }
@@ -341,7 +344,7 @@ namespace Hangfire.Mongo
         {
             if (Logger.IsDebugEnabled())
             {
-                Logger.Debug($"\r\nCommit:\r\n {string.Join("\r\n", _writeModels.Select(SerializeWriteModel))}");
+                Logger.Info($"\r\nCommit:\r\n {string.Join("\r\n", _writeModels.Select(SerializeWriteModel))}");
             }
 
             if (!_writeModels.Any())
@@ -349,15 +352,33 @@ namespace Hangfire.Mongo
                 return;
             }
             
-            var writeTask = _connection
+            _connection
                 .Database
                 .GetCollection<BsonDocument>(_connection.JobGraph.CollectionNamespace.CollectionName)
-                .BulkWriteAsync(_writeModels);
+                .BulkWrite(_writeModels, new BulkWriteOptions
+                {
+                    IsOrdered = true,
+                    BypassDocumentValidation = false
+                });
             
-            // make sure to run tasks on default task scheduler
-            Task.Run(() => writeTask).GetAwaiter().GetResult();
+            SignalJobsAddedToQueues();
         }
 
+        private void SignalJobsAddedToQueues()
+        {
+            if (!_jobsAddedToQueue.Any())
+            {
+                return;
+            }
+
+            var jobsEnqueued =
+                _jobsAddedToQueue.Select(q => new JobEnqueuedDto {Id = ObjectId.GenerateNewId(), Queue = q});
+            _connection.EnqueuedJobs.InsertMany(jobsEnqueued, new InsertManyOptions
+            {
+                BypassDocumentValidation = false,
+                IsOrdered = true
+            });
+        }
         private string SerializeWriteModel(WriteModel<BsonDocument> writeModel)
         {
             string serializedDoc;
